@@ -48,7 +48,7 @@ const configuration: webpack.Configuration = {
   entry: [
     `webpack-dev-server/client?http://localhost:${port}/dist`,
     'webpack/hot/only-dev-server',
-    path.join(webpackPaths.srcRendererPath, 'index.tsx'),
+    path.join(webpackPaths.srcRendererPath, 'index.jsx'),
   ],
 
   output: {
@@ -100,7 +100,7 @@ const configuration: webpack.Configuration = {
           {
             loader: '@svgr/webpack',
             options: {
-              prettier: false,
+              prettier: true,
               svgo: false,
               svgoConfig: {
                 plugins: [{ removeViewBox: false }],

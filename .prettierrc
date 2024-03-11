@@ -1,0 +1,21 @@
+{
+	"singleQuote": false,
+	"overrides": [
+		{
+			"files": [".prettierrc", ".eslintrc"],
+			"options": {
+				"parser": "json"
+			}
+		}
+	],
+	"prettier/prettier": [
+		"warning",
+		{},
+		{
+			"usePrettierrc": true
+		}
+	],
+	"useTabs": true,
+	"tabWidth": 4,
+	"printWidth": 120
+}
