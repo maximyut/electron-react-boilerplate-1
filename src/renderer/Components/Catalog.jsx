@@ -1,37 +1,73 @@
-import { useMemo, useState, memo } from "react";
-import BasicTable from "./BasicTable";
-import ProgressBar from "./ProgressBar";
+import { useState, memo, useEffect, useRef } from "react";
+import { Button, Stack } from "@mui/material";
+
+import BeginParsing from "./BeginParsing";
+import BasicTabs from "./Tabs";
 
 const Catalog = memo(() => {
-	const [catalog, setCatalog] = useState();
-	const [current, setCurrent] = useState(0);
-	const [total, setTotal] = useState();
+	const [pages, setPages] = useState();
+	const [continueParsing, setContinueParsing] = useState(false);
+
+	const storePages = useRef();
+
+	// const pausedElement = useRef();
+	const [pausedElement, setPausedElement] = useState(0);
+
+	useEffect(() => {
+		storePages.current = window.electronAPI.store.get("pages");
+		// pausedElement.current = window.electronAPI.store.get("pausedElement");
+
+		setPausedElement(window.electronAPI.store.get("pausedElement"));
+	}, []);
+
+	useEffect(() => {
+		if (storePages.current) {
+			setPages(storePages.current);
+			setPausedElement(window.electronAPI.store.get("pausedElement"));
+		}
+	}, [storePages]);
 
 	window.electronAPI.getCatalog((event, data) => {
-		setCatalog(data);
-	});
-	window.electronAPI.getProgress((event, data) => {
-		setCurrent(data.current);
-		if (!total) {
-			setTotal(data.total);
-		}
+		setPages(data);
 	});
 
-	const percentage = useMemo(() => {
-		// Вычисление дорогостоящей функции
-		const result = Math.round((current / total) * 100);
-		console.log(result);
-		if (result) {
-			return result;
-		}
-		return 0;
-	}, [current, total]);
-	console.log("render catalog");
+	const saveCatalog = () => {
+		window.electronAPI.createExcel();
+	};
 
-	if (catalog) {
-		return <BasicTable catalog={catalog} />;
+	const clearCatalog = () => {
+		window.electronAPI.store.clear();
+		setPages(undefined);
+	};
+
+	const handleContinueParsing = () => {
+		window.electronAPI.continueParsing();
+		setPages(undefined);
+		setContinueParsing(true);
+	};
+	if (pages && pages.length > 0) {
+		return (
+			<Stack spacing={2} height="100%">
+				<Stack direction="row" spacing={2}>
+					<Button variant="contained" onClick={saveCatalog}>
+						Сохранить каталог
+					</Button>
+					{pausedElement ? (
+						<Button variant="contained" onClick={handleContinueParsing}>
+							Возобновить парсинг
+						</Button>
+					) : null}
+
+					<Button variant="contained" onClick={clearCatalog}>
+						Очистить каталог
+					</Button>
+				</Stack>
+				<BasicTabs pages={pages} />
+			</Stack>
+		);
 	}
-	return <ProgressBar current={percentage} />;
+
+	return <BeginParsing continueParsing={continueParsing} />;
 });
 
 export default Catalog;

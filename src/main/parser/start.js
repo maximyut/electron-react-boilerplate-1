@@ -1,15 +1,10 @@
-const path = require("path");
-
 const { startParsing } = require("./parse");
 
-const start = async () => {
-	const filePath = process.argv[2];
-	const downloadFolderPath = path.dirname(filePath);
-	console.log(filePath);
-	await startParsing(filePath, downloadFolderPath);
+const start = async (filePath, mainWindow) => {
+	await startParsing(filePath, mainWindow);
 };
 
-start();
+// start();
 module.exports = {
 	start,
 };

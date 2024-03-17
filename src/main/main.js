@@ -7,39 +7,15 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from "path";
-import { app, BrowserWindow, shell, ipcMain, utilityProcess, dialog } from "electron";
+import { app, BrowserWindow, shell, ipcMain, dialog } from "electron";
 import { autoUpdater } from "electron-updater";
 import log from "electron-log";
+
 import MenuBuilder from "./menu";
 import { resolveHtmlPath } from "./util";
-
-process.traceProcessWarnings = true;
-
-require("events").EventEmitter.prototype._maxListeners = 100;
-
-const startParsing = (mainWindow, dirPaths) => {
-	const child = utilityProcess.fork(path.join(__dirname, "/parser/start.js"), [dirPaths[0]], { stdio: "pipe" });
-
-	child.stdout.on("data", (data) => {
-		console.log(`stdout: ${data}`);
-		mainWindow.webContents.send("info", `${data}`);
-	});
-
-	child.stderr.on("data", (data) => {
-		console.error(`stderr: ${data}`);
-	});
-	child.on("message", (message) => {
-		if (message.total) {
-			mainWindow.webContents.send("progress", message);
-		} else {
-			mainWindow.webContents.send("catalog", message);
-		}
-	});
-
-	child.on("close", (code) => {
-		console.log(`child process exited with code ${code}`);
-	});
-};
+import { start } from "./parser/start";
+import { createExcelAndCSV } from "./parser/excelFunc";
+import store from "./store";
 
 class AppUpdater {
 	constructor() {
@@ -52,6 +28,7 @@ class AppUpdater {
 let mainWindow;
 
 if (process.env.NODE_ENV === "production") {
+	// eslint-disable-next-line global-require
 	const sourceMapSupport = require("source-map-support");
 	sourceMapSupport.install();
 }
@@ -59,6 +36,7 @@ if (process.env.NODE_ENV === "production") {
 const isDebug = process.env.NODE_ENV === "development" || process.env.DEBUG_PROD === "true";
 
 if (isDebug) {
+	// eslint-disable-next-line global-require
 	require("electron-debug")();
 }
 
@@ -93,12 +71,13 @@ const createWindow = async () => {
 		show: false,
 		width: 1024,
 		height: 728,
+		minWidth: 700,
+		minHeight: 500,
 		icon: getAssetPath("icon.png"),
 		webPreferences: {
 			preload: app.isPackaged
 				? path.join(__dirname, "preload.js")
 				: path.join(__dirname, "../../.erb/dll/preload.js"),
-			nodeIntegration: true,
 		},
 	});
 
@@ -128,28 +107,79 @@ const createWindow = async () => {
 		return { action: "deny" };
 	});
 
-	async function handleDirOpen() {
-		const { canceled, filePaths } = await dialog.showOpenDialog({
-			properties: ["openFile"],
-		});
-
-		startParsing(mainWindow, filePaths);
-
-		if (!canceled) {
-			return filePaths[0];
-		}
-	}
-
-	ipcMain.handle("dialog:openDir", handleDirOpen);
-
 	// Remove this if your app does not use auto updates
 	// eslint-disable-next-line
 	new AppUpdater();
 };
 
+const startParsing = (dirPaths) => {
+	start(dirPaths);
+};
+
+// eslint-disable-next-line consistent-return
+async function handleDirOpen() {
+	const { canceled, filePaths } = await dialog.showOpenDialog({
+		properties: ["openFile"],
+	});
+	store.set("filePath", filePaths[0]);
+
+	startParsing(filePaths[0], mainWindow);
+
+	if (!canceled) {
+		return filePaths[0];
+	}
+}
+
 /**
  * Add event listeners...
  */
+
+// IPC listener
+ipcMain.on("electron-store-get", async (event, key) => {
+	event.returnValue = store.get(key);
+});
+ipcMain.on("electron-store-set", async (event, key, val) => {
+	store.set(key, val);
+});
+
+ipcMain.on("electron-store-delete", async (event, key) => {
+	store.delete(key);
+});
+
+ipcMain.on("electron-store-clear", async () => {
+	store.clear();
+});
+
+ipcMain.handle("create-excel", async () => {
+	const filePath = store.get("filePath");
+	const dirname = path.dirname(filePath);
+	const basename = path.basename(filePath);
+
+	const options = {
+		title: "Сохранить",
+		buttonLabel: "Сохранить как",
+		defaultPath: `${dirname}/Обновленная ${basename}`,
+		filters: [{ name: "All files", extensions: [".xlsx"] }],
+	};
+	dialog
+		.showSaveDialog(options)
+		.then((filename) => {
+			const { canceled, saveFilePath } = filename;
+			// eslint-disable-next-line promise/always-return
+			if (!canceled) {
+				createExcelAndCSV(store.get("pages"), saveFilePath);
+			}
+		})
+		.catch((err) => {
+			console.log(err);
+		});
+});
+
+ipcMain.handle("startParsing", handleDirOpen);
+
+ipcMain.on("continueParsing", async () => {
+	startParsing(store.get("filePath"));
+});
 
 app.on("window-all-closed", () => {
 	// Respect the OSX convention of having the application in memory even
@@ -160,12 +190,16 @@ app.on("window-all-closed", () => {
 });
 
 app.whenReady()
+	// eslint-disable-next-line promise/always-return
 	.then(() => {
 		createWindow();
 		app.on("activate", () => {
 			// On macOS it's common to re-create a window in the app when the
 			// dock icon is clicked and there are no other windows open.
-			if (mainWindow === null) createWindow();
+			if (mainWindow === null) {
+				createWindow()
+			};
 		});
 	})
 	.catch(console.log);
+// eslint-disable-next-line import/prefer-default-export

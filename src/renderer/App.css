@@ -4,6 +4,15 @@
  */
 body {
 	font-family: sans-serif;
+	/* max-height: 100vh; */
+	/* height: 100vh; */
+	margin: 0;
+	/* padding: 10px; */
+	/* overflow: hidden; */
+}
+
+* {
+	box-sizing: border-box;
 }
 
 .console-string {

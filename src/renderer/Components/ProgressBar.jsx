@@ -5,12 +5,6 @@ import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 
 const LinearProgressWithLabel = React.memo(({ current }) => {
-	// const percentage = React.useMemo(() => {
-	// 	// Вычисление дорогостоящей функции
-	// 	const result = Math.round((current / total) * 100);
-	// 	return result;
-	// }, [current, total]);
-	console.log("LinearProgressWithLabel");
 	return (
 		<Box sx={{ display: "flex", alignItems: "center" }}>
 			<Box sx={{ width: "100%", mr: 1 }}>

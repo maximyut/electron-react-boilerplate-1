@@ -12,7 +12,7 @@ export default function ConsoleBlock() {
 	});
 
 	return (
-		<div style={{ maxHeight: "30%" }}>
+		<>
 			{data.map(({ date, milliDate, text }) => {
 				const textClass = text.includes("Error") ? "text error" : "text";
 				return (
@@ -22,6 +22,6 @@ export default function ConsoleBlock() {
 					</div>
 				);
 			})}
-		</div>
+		</>
 	);
 }

@@ -2,11 +2,7 @@ const fs = require("fs/promises");
 const path = require("path");
 
 const xlsx = require("xlsx");
-const {
-	getData,
-	getObjectWithLongestArray,
-	checkJSON,
-} = require("./functions");
+const { getData, getObjectWithLongestArray, checkJSON } = require("./functions");
 
 const traverseAndFlatten = (currentNode, target, flattenedKey) => {
 	for (const key in currentNode) {
@@ -98,10 +94,7 @@ const createCharacteristics = async (flattedArray, path) => {
 
 		const characteristicsNamesKeys = keys.filter(
 			(key) =>
-				!key.includes("title") &&
-				!key.includes("price") &&
-				!key.includes("url") &&
-				!key.includes("images"),
+				!key.includes("title") && !key.includes("price") && !key.includes("url") && !key.includes("images"),
 		);
 
 		for (const key of keys) {
@@ -119,33 +112,22 @@ const createCharacteristics = async (flattedArray, path) => {
 };
 
 const createOneFile = async (path) => {
-	const flattedArray = [
-		...(await createNewArray(`${path}/catalog`)).flattedArray,
-	]; // ...(await createNewArray(`${path}/errorLinks`)).flattedArray
-	const normalArray = [
-		...(await createNewArray(`${path}/catalog`)).normalArray,
-	];
+	const flattedArray = [...(await createNewArray(`${path}/catalog`)).flattedArray]; // ...(await createNewArray(`${path}/errorLinks`)).flattedArray
+	const normalArray = [...(await createNewArray(`${path}/catalog`)).normalArray];
 
 	console.log("Товаров: ", flattedArray.length);
 
 	await fs.writeFile(`${path}/catalog.json`, JSON.stringify(normalArray));
-	await fs.writeFile(
-		`${path}/flattedCatalog.json`,
-		JSON.stringify(flattedArray),
-	);
+	await fs.writeFile(`${path}/flattedCatalog.json`, JSON.stringify(flattedArray));
 
 	const createNewFlattedCatalog = async (flattedArray) => {
 		let characteristicsObj;
 		if (await checkJSON(`${path}/characteristics.json`)) {
 			characteristicsObj = await getData(`${path}/characteristics.json`);
 		} else {
-			characteristicsObj = await createCharacteristics(
-				flattedArray,
-				path,
-			);
+			characteristicsObj = await createCharacteristics(flattedArray, path);
 		}
-		const maxImgLinks = getObjectWithLongestArray(normalArray, "images")
-			.images.length;
+		const maxImgLinks = getObjectWithLongestArray(normalArray, "images").images.length;
 
 		const createObjWithNamedCharacteristics = (obj, i) => {
 			const keys = Object.keys(obj);
@@ -197,10 +179,7 @@ const createOneFile = async (path) => {
 			return obj;
 		});
 
-		await fs.writeFile(
-			`${path}/newFlattedCatalog.json`,
-			JSON.stringify(newArray),
-		);
+		await fs.writeFile(`${path}/newFlattedCatalog.json`, JSON.stringify(newArray));
 		return newArray;
 	};
 
@@ -208,13 +187,9 @@ const createOneFile = async (path) => {
 	return { flattedArray, normalArray, newArr };
 };
 
-const startCreatingOneFile = async (
-	pathToCatalogFolder,
-	pathToDownloadFolder,
-) => {
+const startCreatingOneFile = async (pathToCatalogFolder, pathToDownloadFolder) => {
 	console.log("start creating one file");
-	const { flattedArray, normalArray, newArr } =
-		await createOneFile(pathToCatalogFolder);
+	const { flattedArray, normalArray, newArr } = await createOneFile(pathToCatalogFolder);
 
 	const originalWorkbook = xlsx.utils.book_new();
 	const newWorkbook = xlsx.utils.book_new();
@@ -222,21 +197,11 @@ const startCreatingOneFile = async (
 	const originalWorksheet = xlsx.utils.json_to_sheet(flattedArray);
 	const newWorksheet = xlsx.utils.json_to_sheet(newArr);
 
-	xlsx.utils.book_append_sheet(
-		originalWorkbook,
-		originalWorksheet,
-		"Оригинал",
-	);
+	xlsx.utils.book_append_sheet(originalWorkbook, originalWorksheet, "Оригинал");
 	xlsx.utils.book_append_sheet(newWorkbook, newWorksheet, "Измененный");
 
-	await xlsx.writeFile(
-		originalWorkbook,
-		`${pathToDownloadFolder}/Оригинал.xlsx`,
-	);
-	await xlsx.writeFile(
-		newWorkbook,
-		`${pathToDownloadFolder}/Измененный.xlsx`,
-	);
+	await xlsx.writeFile(originalWorkbook, `${pathToDownloadFolder}/Оригинал.xlsx`);
+	await xlsx.writeFile(newWorkbook, `${pathToDownloadFolder}/Измененный.xlsx`);
 
 	console.log("stop creating one file");
 };

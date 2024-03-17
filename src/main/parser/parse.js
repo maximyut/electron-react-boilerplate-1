@@ -1,14 +1,11 @@
 /* eslint-disable no-restricted-syntax */
 const cheerio = require("cheerio");
 const puppeteer = require("puppeteer");
-
-const { default: axios } = require("axios");
+const { ipcMain, BrowserWindow } = require("electron");
 const _ = require("lodash");
 
-const XLSX = require("xlsx");
-const path = require("path");
-
-const { checkJSON, createJSON, getData } = require("./functions");
+const { getCatalogFromExcel } = require("./excelFunc");
+const { default: store } = require("../store");
 
 const createPage3 = (catalog) => {
 	const newArr = _.chain(catalog)
@@ -24,8 +21,9 @@ const createPage3 = (catalog) => {
 				allRepeats += Number(obj["Позиция [KS]"]);
 				allRepeatsPhrases += `${obj["Фраза"]}, `;
 			}
-			const newGroup = group.map((obj) => {
+			const newGroup = group.map((obj, i) => {
 				const newObj = {};
+				newObj.id = i;
 				newObj["Домен"] = obj["Домен"];
 				newObj["Средняя позиция"] = allRepeats / groupLength;
 				newObj["Количество повторений"] = groupLength;
@@ -50,26 +48,6 @@ const createPage2 = (catalog) => {
 	return newArr;
 };
 
-const createExcelAndCSV = async (array, downloadFolderPath, filePath) => {
-	const workbook = XLSX.utils.book_new();
-	const worksheet1 = XLSX.utils.json_to_sheet(array);
-
-	const arr2 = createPage2(array);
-	const worksheet2 = XLSX.utils.json_to_sheet(arr2);
-	const arr3 = createPage3(arr2);
-
-	const worksheet3 = XLSX.utils.json_to_sheet(arr3);
-
-	XLSX.utils.book_append_sheet(workbook, worksheet1, "Страница 1");
-	XLSX.utils.book_append_sheet(workbook, worksheet2, "Страница 2");
-	XLSX.utils.book_append_sheet(workbook, worksheet3, "Страница 3");
-
-	const fileName = path.basename(filePath);
-	const xlxsPath = `${downloadFolderPath}/Обновленная ${fileName}`;
-
-	await XLSX.writeFile(workbook, xlxsPath);
-};
-
 const countRepeats = (phrase, catalog) => {
 	let i = 0;
 	let repeatedLinks = "";
@@ -82,14 +60,17 @@ const countRepeats = (phrase, catalog) => {
 	return [repeatedLinks, i];
 };
 
-const getRepeats = async (item, catalog, foundPhrasesPath) => {
-	const foundPhrases = await getData(foundPhrasesPath);
+const getRepeats = async (item, catalog) => {
+	// const foundPhrases = await getData(foundPhrasesPath);
+	// let foundPhrases = store.get("foundPhrases");
+
 	const phrase = item["Фраза"];
 	const [repeatedLinks, repeats] = countRepeats(phrase, catalog);
 	item["Количество конкурентов по ключу"] = repeats;
 	item["Повторяющиеся ссылки"] = repeatedLinks;
-	await createJSON([...foundPhrases, phrase], foundPhrasesPath);
 
+	// await createJSON([...foundPhrases, phrase], foundPhrasesPath);
+	// store.set("foundPhrases", [...foundPhrases, phrase]);
 	return item;
 };
 
@@ -102,13 +83,16 @@ const getDomainInfo = (link) => {
 	};
 };
 
-const getPageInfo = async (item, visitedLinksPath, page) => {
+const getPageInfo = async (item, page, mainWindow, config) => {
 	let newItem = {};
-	const visitedLinks = await getData(visitedLinksPath);
+	const info = {};
+	const visitedLinks = await store.get("visitedLinks");
+
 	const link = item["URL [KS]"];
 
 	if (link in visitedLinks) {
 		newItem = { ...item, ...visitedLinks[link] };
+		console.log("Ссылка уже обработана");
 	} else {
 		let html;
 
@@ -118,123 +102,155 @@ const getPageInfo = async (item, visitedLinksPath, page) => {
 
 			// pageContainer = (await axios.get(link)).data;
 		} catch (error) {
-			console.log(`Страница ${link} недоступна, ${error}`);
+			mainWindow.webContents.send("getInfo", `Страница ${link} недоступна, ${error}`);
 			return item;
 		}
 
 		const $ = cheerio.load(html);
 
 		const contentContainer = $("html");
-		const H1 = contentContainer.find("h1").text();
-		const title = contentContainer.find("title").text();
-		const description = contentContainer.find('meta[name="description"]').attr("content");
-
-		const breadcrumbsClasses = [".breadcrumbs", ".breadcrumb", "#breadcrumbs", "#breadcrumb"];
-
-		let breadcrumbs;
-
-		for (const breadcrumbsClass of breadcrumbsClasses) {
-			const item = contentContainer.find($(`${breadcrumbsClass}:has(a)`));
-			if (item.length > 0) {
-				breadcrumbs = item.text().trim();
-				break;
-			}
+		if (config.h1) {
+			info.H1 = contentContainer.find("h1").text() || "";
+		}
+		if (config.title) {
+			info.title = contentContainer.find("title").text() || "";
 		}
 
-		const info = {
-			H1,
-			Title: title,
-			Description: description,
-			"Хлебные крошки": breadcrumbs,
-		};
+		if (config.title) {
+			info.description = contentContainer.find('meta[name="description"]').attr("content") || "";
+		}
+		if (config.breadcrumbs) {
+			const breadcrumbsClasses = [".breadcrumbs", ".breadcrumb", "#breadcrumbs", "#breadcrumb"];
+
+			let breadcrumbs;
+
+			for (const breadcrumbsClass of breadcrumbsClasses) {
+				const item = contentContainer.find($(`${breadcrumbsClass}:has(a)`));
+				if (item.length > 0) {
+					breadcrumbs = item.text().trim();
+					break;
+				}
+			}
+			info["Хлебные крошки"] = breadcrumbs;
+		}
 
 		newItem = { ...item, ...info };
 		visitedLinks[link] = info;
-		await createJSON(visitedLinks, visitedLinksPath);
+
+		store.set("visitedLinks", visitedLinks);
 	}
 
 	return newItem;
 };
 
 // eslint-disable-next-line prettier/prettier
-const parseItem = async (item, initialCatalog, foundPhrasesPath, visitedLinksPath, page) => {
+const parseItem = async (item, initialCatalog, page, mainWindow, config) => {
 	let newItem = {};
 
-	const start = new Date().getTime();
 	try {
-		newItem = await getRepeats(item, initialCatalog, foundPhrasesPath);
-		newItem = await getPageInfo(newItem, visitedLinksPath, page);
+		newItem = await getRepeats(item, initialCatalog);
+		newItem = await getPageInfo(newItem, page, mainWindow, config);
 		newItem = { ...newItem, ...getDomainInfo(item["URL [KS]"]) };
 	} catch (error) {
-		console.log("Ошибка записи", error);
+		mainWindow.webContents.send("getInfo", `Ошибка записи: ${error}`);
 	}
 
-	const end = new Date().getTime();
-	// console.log(`Затрачено ${end - start}мс`);
 	return newItem;
 };
 
-const parse = async (filePath, downloadFolderPath) => {
-	const workbook = XLSX.readFile(filePath);
-	const sheetNameList = workbook.SheetNames;
-	const initialCatalog = XLSX.utils.sheet_to_json(workbook.Sheets[sheetNameList[0]]);
-	const initialCatalogPath = `${downloadFolderPath}/initialCatalog.json`;
-	if (!(await checkJSON(initialCatalogPath))) {
-		await createJSON(initialCatalog, initialCatalogPath);
+const parse = async (filePath, mainWindow, config) => {
+	const initialCatalog = getCatalogFromExcel(filePath);
+
+	if (!store.has("initialCatalog")) {
+		store.set("initialCatalog", initialCatalog);
+	}
+
+	if (!store.has("visitedLinks")) {
+		store.set("visitedLinks", {});
 	}
 
 	let i = 1;
-
-	const foundPhrasesPath = `${downloadFolderPath}/foundPhrases.json`;
-	if (!(await checkJSON(foundPhrasesPath))) {
-		await createJSON([], foundPhrasesPath);
-	}
-
-	const visitedLinksPath = `${downloadFolderPath}/visitedLinks.json`;
-	if (!(await checkJSON(visitedLinksPath))) {
-		await createJSON({}, visitedLinksPath);
-	}
 
 	const newCatalog = [];
 
 	const browser = await puppeteer.launch(); // Launch the browser
 	const page = await browser.newPage(); // Open a new page
 	await page.setUserAgent("Mozilla/5.0 (Windows NT 5.1; rv:5.0) Gecko/20100101 Firefox/5.0");
+	let stopParsing,
+		pausedElement = 0;
+
+	ipcMain.on("stopParsing", async () => {
+		stopParsing = true;
+		pausedElement = store.delete("pausedElement");
+	});
+
+	ipcMain.on("pauseParsing", async () => {
+		stopParsing = true;
+		store.set("pausedElement", i);
+	});
+
+	if (store.has("pausedElement")) {
+		pausedElement = store.get("pausedElement");
+	}
 
 	for (const item of initialCatalog) {
-		// console.log(`Элемент ${i} из ${initialCatalog.length}`);
-		try {
-			newCatalog.push(await parseItem(item, initialCatalog, foundPhrasesPath, visitedLinksPath, page));
-		} catch (error) {
-			console.log("Ошибка", error);
-			return newCatalog;
-		}
-
-		if (i % Math.floor(initialCatalog.length / 100) === 0) {
-			await setTimeout(() => {
-				process.parentPort.postMessage({ current: i, total: initialCatalog.length });
-			}, 0);
+		// mainWindow.webContents.send("getInfo", `Элемент ${i} из ${initialCatalog.length}`)
+		if (i >= pausedElement) {
+			console.log(`Элемент ${i} из ${initialCatalog.length}`);
+			try {
+				newCatalog.push({ id: i, ...(await parseItem(item, initialCatalog, page, mainWindow, config)) });
+			} catch (error) {
+				mainWindow.webContents.send("getInfo", `Элемент ${i} из ${initialCatalog.length} \n Ошибка: ${error}`);
+				return newCatalog;
+			}
+			if (i % Math.floor(initialCatalog.length / 1000) === 0) {
+				mainWindow.webContents.send("getProgress", { current: i, total: initialCatalog.length });
+			}
+			if (stopParsing) {
+				break;
+			}
 		}
 
 		i += 1;
 	}
 
-	process.parentPort.postMessage(newCatalog);
+	if (i === initialCatalog.length) {
+		store.delete("pausedElement");
+	}
+
 	await browser.close(); // Close the browser
 
 	return newCatalog;
 };
 
-const startParsing = async (filePath, downloadFolderPath) => {
+const startParsing = async (filePath) => {
 	console.log(`Старт парсинга`);
-	const temporaryFilesPath = `${downloadFolderPath}/temporary files`;
-	const newCatalog = await parse(filePath, temporaryFilesPath);
-	// const newCatalog = await getData(`${temporaryFilesPath}/newCatalog.json`)
+	const mainWindow = BrowserWindow.fromId(1);
 
-	await createJSON(newCatalog, `${temporaryFilesPath}/newCatalog.json`);
-	await createExcelAndCSV(newCatalog, downloadFolderPath, filePath);
+	mainWindow.webContents.send("getInfo", `Старт парсинга`);
+	const config = store.get("config");
 
+	const pages = [];
+	let catalog2, catalog3;
+
+	const mainCatalog = await parse(filePath, mainWindow, config);
+	pages.push(mainCatalog);
+
+	if (config.page2) {
+		catalog2 = createPage2(mainCatalog);
+		pages.push(catalog2);
+	}
+	if (config.page3) {
+		catalog3 = createPage3(catalog2);
+		pages.push(catalog3);
+	}
+
+	mainWindow.webContents.send("getCatalog", pages);
+	store.set("pages", pages);
+
+	mainWindow.webContents.send("getInfo", `Конец парсинга`);
 	console.log(`Конец парсинга`);
+	return pages;
 };
 
 module.exports = {
