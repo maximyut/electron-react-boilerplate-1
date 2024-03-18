@@ -16,6 +16,7 @@ module.exports = {
 		"no-console": "off",
 		"no-await-in-loop": "off",
 		"one-var": "off",
+		"react/jsx-props-no-spreading": "off"
 	},
 	parserOptions: {
 		ecmaVersion: 2022,

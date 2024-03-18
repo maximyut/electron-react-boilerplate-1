@@ -51,6 +51,14 @@ const schema = {
 		type: "array",
 		items: {
 			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					id: {
+						type: "number",
+					},
+				},
+			},
 		},
 	},
 };
@@ -70,5 +78,5 @@ const defaults = {
 };
 
 const store = new Store({ defaults, schema });
-
+store.clear()
 export default store;

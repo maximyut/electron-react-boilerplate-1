@@ -6,6 +6,7 @@
  * When running `npm run build` or `npm run build:main`, this file is compiled to
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
+
 import path from "path";
 import { app, BrowserWindow, shell, ipcMain, dialog } from "electron";
 import { autoUpdater } from "electron-updater";
@@ -120,12 +121,17 @@ const startParsing = (dirPaths) => {
 async function handleDirOpen() {
 	const { canceled, filePaths } = await dialog.showOpenDialog({
 		properties: ["openFile"],
+		filters: [
+			{
+				name: "Таблица",
+				extensions: ["xlsx", "xls", "xlsb" /* ... other formats ... */],
+			},
+		],
 	});
-	store.set("filePath", filePaths[0]);
-
-	startParsing(filePaths[0], mainWindow);
 
 	if (!canceled) {
+		store.set("filePath", filePaths[0]);
+		startParsing(filePaths[0]);
 		return filePaths[0];
 	}
 }
@@ -151,9 +157,9 @@ ipcMain.on("electron-store-clear", async () => {
 });
 
 ipcMain.handle("create-excel", async () => {
-	const filePath = store.get("filePath");
-	const dirname = path.dirname(filePath);
-	const basename = path.basename(filePath);
+	const storedFilePath = store.get("filePath");
+	const dirname = path.dirname(storedFilePath);
+	const basename = path.basename(storedFilePath);
 
 	const options = {
 		title: "Сохранить",
@@ -164,10 +170,11 @@ ipcMain.handle("create-excel", async () => {
 	dialog
 		.showSaveDialog(options)
 		.then((filename) => {
-			const { canceled, saveFilePath } = filename;
+			const { canceled, filePath } = filename;
+			console.log(filePath);
 			// eslint-disable-next-line promise/always-return
 			if (!canceled) {
-				createExcelAndCSV(store.get("pages"), saveFilePath);
+				createExcelAndCSV(store.get("pages"), filePath);
 			}
 		})
 		.catch((err) => {
@@ -197,8 +204,8 @@ app.whenReady()
 			// On macOS it's common to re-create a window in the app when the
 			// dock icon is clicked and there are no other windows open.
 			if (mainWindow === null) {
-				createWindow()
-			};
+				createWindow();
+			}
 		});
 	})
 	.catch(console.log);

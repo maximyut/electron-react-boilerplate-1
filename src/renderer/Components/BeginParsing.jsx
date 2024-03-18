@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import ProgressBar from "./ProgressBar";
 import ConfigForm from "./ConfigForm";
 
+// eslint-disable-next-line react/prop-types
 export default function BeginParsing({ continueParsing }) {
 	const [fileDir, setFileDir] = useState("");
 	const [current, setCurrent] = useState(0);
@@ -11,8 +12,8 @@ export default function BeginParsing({ continueParsing }) {
 	const [config, setConfig] = useState(window.electronAPI.store.get("config"));
 
 	const openFile = async () => {
-		const dirPath = await window.electronAPI.startParsing();
 		window.electronAPI.store.set("config", config);
+		const dirPath = await window.electronAPI.startParsing();
 		setParsing(true);
 		setFileDir(dirPath);
 	};
@@ -50,15 +51,12 @@ export default function BeginParsing({ continueParsing }) {
 		setParsing(false);
 	};
 
-	const handleClick = () => {
-		onFunctionCall("Данные из дочернего компонента");
-	};
-
 	const handleConfigChange = (newConfig) => {
 		setConfig({
 			...config,
 			...newConfig,
 		});
+		console.log(config);
 	};
 
 	return (

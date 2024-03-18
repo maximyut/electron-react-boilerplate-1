@@ -1,6 +1,8 @@
 /* eslint-disable no-restricted-syntax */
 const cheerio = require("cheerio");
+// const puppeteer = require('puppeteer-in-electron');
 const puppeteer = require("puppeteer");
+const PCR = require("puppeteer-chromium-resolver");
 const { ipcMain, BrowserWindow } = require("electron");
 const _ = require("lodash");
 
@@ -8,7 +10,7 @@ const { getCatalogFromExcel } = require("./excelFunc");
 const { default: store } = require("../store");
 
 const createPage3 = (catalog) => {
-	const newArr = _.chain(catalog)
+	let newArr = _.chain(catalog)
 		.groupBy("Домен")
 		.values()
 		.value()
@@ -21,9 +23,8 @@ const createPage3 = (catalog) => {
 				allRepeats += Number(obj["Позиция [KS]"]);
 				allRepeatsPhrases += `${obj["Фраза"]}, `;
 			}
-			const newGroup = group.map((obj, i) => {
+			const newGroup = group.map((obj) => {
 				const newObj = {};
-				newObj.id = i;
 				newObj["Домен"] = obj["Домен"];
 				newObj["Средняя позиция"] = allRepeats / groupLength;
 				newObj["Количество повторений"] = groupLength;
@@ -33,6 +34,9 @@ const createPage3 = (catalog) => {
 			return _.take(newGroup);
 		})
 		.flat();
+	newArr = newArr.map((obj, i) => {
+		return { id: i, ...obj };
+	});
 
 	return newArr;
 };
@@ -100,7 +104,7 @@ const getPageInfo = async (item, page, mainWindow, config) => {
 			await page.goto(link, { waitUntil: "load" }); // Navigate to the provided URL
 			html = await page.content(); // Get the page content
 
-			// pageContainer = (await axios.get(link)).data;
+			// html = (await axios.get(link)).data;
 		} catch (error) {
 			mainWindow.webContents.send("getInfo", `Страница ${link} недоступна, ${error}`);
 			return item;
@@ -159,7 +163,15 @@ const parseItem = async (item, initialCatalog, page, mainWindow, config) => {
 };
 
 const parse = async (filePath, mainWindow, config) => {
-	const initialCatalog = getCatalogFromExcel(filePath);
+	mainWindow.webContents.send("getInfo", `parse`);
+	let initialCatalog;
+	try {
+		initialCatalog = await getCatalogFromExcel(filePath);
+		mainWindow.webContents.send("getInfo", initialCatalog);
+	} catch (error) {
+		mainWindow.webContents.send("getInfo", ` Нет каталога ${initialCatalog}, ${error}`);
+		return;
+	}
 
 	if (!store.has("initialCatalog")) {
 		store.set("initialCatalog", initialCatalog);
@@ -172,55 +184,81 @@ const parse = async (filePath, mainWindow, config) => {
 	let i = 1;
 
 	const newCatalog = [];
+	try {
+		const options = {};
+		const stats = await PCR(options);
+		const browser = await stats.puppeteer
+			.launch({
+				headless: true,
+				executablePath: stats.executablePath,
+			})
+			.catch((error) => {
+				console.log(error);
+				mainWindow.webContents.send("getInfo", ` нет запуска браузера:${error}`);
+			});
+		// browser = await puppeteer
+		// 	.launch()
+		// 	.then(() => {
+		// 		mainWindow.webContents.send("getInfo", ` запуска браузера: `);
+		// 	})
+		// 	.catch((err) => {
+		// 		mainWindow.webContents.send("getInfo", ` нет запуска браузера:${err}`);
+		// 	}); // Launch the browser
+		const page = await browser.newPage(); // Open a new page
+		mainWindow.webContents.send("getInfo", ` запуска страницы: `);
+		await page.setUserAgent("Mozilla/5.0 (Windows NT 5.1; rv:5.0) Gecko/20100101 Firefox/5.0");
+		let stopParsing,
+			pausedElement = 0;
 
-	const browser = await puppeteer.launch(); // Launch the browser
-	const page = await browser.newPage(); // Open a new page
-	await page.setUserAgent("Mozilla/5.0 (Windows NT 5.1; rv:5.0) Gecko/20100101 Firefox/5.0");
-	let stopParsing,
-		pausedElement = 0;
+		ipcMain.on("stopParsing", async () => {
+			stopParsing = true;
+			pausedElement = store.delete("pausedElement");
+		});
 
-	ipcMain.on("stopParsing", async () => {
-		stopParsing = true;
-		pausedElement = store.delete("pausedElement");
-	});
+		ipcMain.on("pauseParsing", async () => {
+			stopParsing = true;
+			store.set("pausedElement", i);
+		});
 
-	ipcMain.on("pauseParsing", async () => {
-		stopParsing = true;
-		store.set("pausedElement", i);
-	});
-
-	if (store.has("pausedElement")) {
-		pausedElement = store.get("pausedElement");
-	}
-
-	for (const item of initialCatalog) {
-		// mainWindow.webContents.send("getInfo", `Элемент ${i} из ${initialCatalog.length}`)
-		if (i >= pausedElement) {
-			console.log(`Элемент ${i} из ${initialCatalog.length}`);
-			try {
-				newCatalog.push({ id: i, ...(await parseItem(item, initialCatalog, page, mainWindow, config)) });
-			} catch (error) {
-				mainWindow.webContents.send("getInfo", `Элемент ${i} из ${initialCatalog.length} \n Ошибка: ${error}`);
-				return newCatalog;
-			}
-			if (i % Math.floor(initialCatalog.length / 1000) === 0) {
-				mainWindow.webContents.send("getProgress", { current: i, total: initialCatalog.length });
-			}
-			if (stopParsing) {
-				break;
-			}
+		if (store.has("pausedElement")) {
+			pausedElement = store.get("pausedElement");
 		}
 
-		i += 1;
+		for (const item of initialCatalog) {
+			// mainWindow.webContents.send("getInfo", `Элемент ${i} из ${initialCatalog.length}`)
+			if (i >= pausedElement) {
+				console.log(`Элемент ${i} из ${initialCatalog.length}`);
+				mainWindow.webContents.send("getInfo", `Элемент ${i} из ${initialCatalog.length}`);
+				try {
+					newCatalog.push({ id: i, ...(await parseItem(item, initialCatalog, page, mainWindow, config)) });
+				} catch (error) {
+					mainWindow.webContents.send(
+						"getInfo",
+						`Элемент ${i} из ${initialCatalog.length} \n Ошибка: ${error}`,
+					);
+					return newCatalog;
+				}
+				if (i % Math.floor(initialCatalog.length / 1000) === 0) {
+					mainWindow.webContents.send("getProgress", { current: i, total: initialCatalog.length });
+				}
+				if (stopParsing) {
+					break;
+				}
+			}
+
+			i += 1;
+		}
+
+		if (i === initialCatalog.length) {
+			store.delete("pausedElement");
+		}
+
+		await browser.close(); // Close the browser
+
+		return newCatalog;
+	} catch (error) {
+		mainWindow.webContents.send("getInfo", `Ошибка запуска браузера: ${error.message}`);
 	}
-
-	if (i === initialCatalog.length) {
-		store.delete("pausedElement");
-	}
-
-	await browser.close(); // Close the browser
-
-	return newCatalog;
 };
 
 const startParsing = async (filePath) => {
@@ -232,21 +270,24 @@ const startParsing = async (filePath) => {
 
 	const pages = [];
 	let catalog2, catalog3;
+	try {
+		const mainCatalog = await parse(filePath, mainWindow, config);
+		console.log(mainCatalog);
+		pages.push(mainCatalog);
 
-	const mainCatalog = await parse(filePath, mainWindow, config);
-	pages.push(mainCatalog);
-
-	if (config.page2) {
-		catalog2 = createPage2(mainCatalog);
-		pages.push(catalog2);
+		if (config.page2) {
+			catalog2 = createPage2(mainCatalog);
+			pages.push(catalog2);
+		}
+		if (config.page3) {
+			catalog3 = createPage3(catalog2);
+			pages.push(catalog3);
+		}
+		mainWindow.webContents.send("getCatalog", pages);
+		store.set("pages", pages);
+	} catch (error) {
+		mainWindow.webContents.send("getInfo", `ошибка парсинга: ${error}`);
 	}
-	if (config.page3) {
-		catalog3 = createPage3(catalog2);
-		pages.push(catalog3);
-	}
-
-	mainWindow.webContents.send("getCatalog", pages);
-	store.set("pages", pages);
 
 	mainWindow.webContents.send("getInfo", `Конец парсинга`);
 	console.log(`Конец парсинга`);

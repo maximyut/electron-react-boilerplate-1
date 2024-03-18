@@ -3,7 +3,6 @@ import * as React from "react";
 import PropTypes from "prop-types";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
-import Typography from "@mui/material/Typography";
 import Box from "@mui/material/Box";
 import BasicTable from "./BasicTable";
 
@@ -25,7 +24,6 @@ function CustomTabPanel(props) {
 }
 
 CustomTabPanel.propTypes = {
-	children: PropTypes.node,
 	index: PropTypes.number.isRequired,
 	value: PropTypes.number.isRequired,
 };
@@ -49,13 +47,13 @@ export default function BasicTabs({ pages }) {
 			<Box sx={{ borderBottom: 1, borderColor: "divider" }}>
 				<Tabs value={value} onChange={handleChange} aria-label="basic tabs example">
 					{pages.map((catalog, i) => (
-						<Tab label={`Страница ${i + 1}`} {...a11yProps(i)} key={`page_${i}`} />
+						<Tab label={`Страница ${i + 1}`} {...a11yProps(i)} key={`page_${i + 1}`} />
 					))}
 				</Tabs>
 			</Box>
 			{pages.map((catalog, i) => (
-				<CustomTabPanel value={value} index={i} key={`page_${i}`}>
-					<BasicTable catalog={catalog} />
+				<CustomTabPanel value={value} index={i} key={`page_${i + 1}`}>
+					<BasicTable catalog={catalog} pageNumber={i} />
 				</CustomTabPanel>
 			))}
 		</Box>
