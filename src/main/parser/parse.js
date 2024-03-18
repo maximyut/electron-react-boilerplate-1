@@ -165,16 +165,17 @@ const parseItem = async (item, initialCatalog, page, mainWindow, config) => {
 const parse = async (filePath, mainWindow, config) => {
 	mainWindow.webContents.send("getInfo", `parse`);
 	let initialCatalog;
-	try {
-		initialCatalog = await getCatalogFromExcel(filePath);
-		mainWindow.webContents.send("getInfo", initialCatalog);
-	} catch (error) {
-		mainWindow.webContents.send("getInfo", ` Нет каталога ${initialCatalog}, ${error}`);
-		return;
-	}
 
 	if (!store.has("initialCatalog")) {
+		try {
+			initialCatalog = await getCatalogFromExcel(filePath);
+		} catch (error) {
+			mainWindow.webContents.send("getInfo", ` Нет каталога, ${error}, ${filePath}`);
+			return;
+		}
 		store.set("initialCatalog", initialCatalog);
+	} else {
+		initialCatalog = store.get("initialCatalog");
 	}
 
 	if (!store.has("visitedLinks")) {
